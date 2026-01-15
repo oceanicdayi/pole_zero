@@ -1,0 +1,415 @@
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { LineChart, Activity, Info, Zap, ArrowRight, MousePointer2 } from 'lucide-react';
+
+/**
+ * 複雜數運算與物理計算工具
+ */
+const PI = Math.PI;
+
+class Complex {
+  constructor(re, im) {
+    this.re = re;
+    this.im = im;
+  }
+
+  add(c) { return new Complex(this.re + c.re, this.im + c.im); }
+  sub(c) { return new Complex(this.re - c.re, this.im - c.im); }
+  mult(c) { return new Complex(this.re * c.re - this.im * c.im, this.re * c.im + this.im * c.re); }
+  div(c) {
+    const denom = c.re * c.re + c.im * c.im;
+    return new Complex((this.re * c.re + this.im * c.im) / denom, (this.im * c.re - this.re * c.im) / denom);
+  }
+  mag() { return Math.sqrt(this.re * this.re + this.im * this.im); }
+  phase() { return Math.atan2(this.im, this.re); }
+}
+
+const CONSTANT = 7.222102e+14;
+const SENSITIVITY = 3.121640e+05;
+
+// SAC File Definitions
+const ZEROS = [
+  new Complex(0, 0),
+  new Complex(0, 0),
+  new Complex(-3333.0, 0)
+];
+
+const POLES = [
+  new Complex(-742.0, 1014.0),
+  new Complex(-742.0, -1014.0),
+  new Complex(-866.3, 0),
+  new Complex(-5638.0, 0)
+];
+
+// Helper to format scientific notation
+const toSci = (num) => {
+  if (num === 0) return "0";
+  return num.toExponential(2).replace('e+', 'e');
+};
+
+const App = () => {
+  const [activeTab, setActiveTab] = useState('acc'); // 'disp' or 'acc'
+  const [hoverFreq, setHoverFreq] = useState(null);
+  
+  // 計算響應數據
+  const chartData = useMemo(() => {
+    const data = [];
+    // Logspace from 0.01 Hz to 1000 Hz
+    const minExp = -2;
+    const maxExp = 3;
+    const points = 200;
+    
+    for (let i = 0; i <= points; i++) {
+      const exp = minExp + (i / points) * (maxExp - minExp);
+      const freq = Math.pow(10, exp);
+      const omega = 2 * PI * freq;
+      const s = new Complex(0, omega);
+
+      // Calculate Transfer Function H(s)
+      let num = new Complex(CONSTANT, 0); // Start with Gain
+      ZEROS.forEach(z => {
+        num = num.mult(s.sub(z));
+      });
+
+      let den = new Complex(1, 0);
+      POLES.forEach(p => {
+        den = den.mult(s.sub(p));
+      });
+
+      const H_disp = num.div(den);
+      
+      // Acceleration Response: H_acc = H_disp / s^2
+      // Instead of dividing complex numbers, we can just use magnitude logic
+      // |H_acc| = |H_disp| / omega^2
+      const magDisp = H_disp.mag();
+      const magAcc = magDisp / (omega * omega);
+
+      // Phase
+      let phaseDisp = H_disp.phase() * (180 / PI);
+      // Unwrap phase logic simplistic (usually needs tracking prev value)
+      // For Acc phase: Phase_disp - 180 (since s^2 contributes +180 deg to denominator, or -180 shift)
+      // Actually s^2 is 2 zeros at origin in numerator for disp.
+      // So Acc response removes those 2 zeros. 
+      // Let's compute H_acc directly for phase accuracy.
+      
+      // H_acc specific calc for phase
+      let numAcc = new Complex(CONSTANT, 0);
+      // Skip the first two zeros at origin for acceleration calculation
+      // The third zero is ZEROS[2]
+      numAcc = numAcc.mult(s.sub(ZEROS[2]));
+      const H_acc_complex = numAcc.div(den);
+      const phaseAcc = H_acc_complex.phase() * (180 / PI);
+
+      data.push({
+        freq,
+        magDisp,
+        magAcc,
+        phaseDisp,
+        phaseAcc
+      });
+    }
+    return data;
+  }, []);
+
+  const currentData = activeTab === 'disp' 
+    ? { data: chartData.map(d => ({ x: d.freq, y: d.magDisp, p: d.phaseDisp })), color: '#3b82f6', label: '位移響應 (Counts/M)', title: 'Displacement Response' }
+    : { data: chartData.map(d => ({ x: d.freq, y: d.magAcc, p: d.phaseAcc })), color: '#ef4444', label: '加速度響應 (Counts/(M/s²))', title: 'Acceleration Response' };
+
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans p-4 md:p-8">
+      <div className="max-w-6xl mx-auto space-y-8">
+        
+        {/* Header */}
+        <header className="bg-white rounded-2xl shadow-sm p-6 border-l-4 border-indigo-600 flex flex-col md:flex-row justify-between items-start md:items-center">
+          <div>
+            <h1 className="text-3xl font-bold text-slate-900 flex items-center gap-3">
+              <Activity className="w-8 h-8 text-indigo-600" />
+              強震儀響應分析 (FBA Response)
+            </h1>
+            <p className="text-slate-500 mt-2">
+              測站代碼: <span className="font-mono font-bold text-indigo-600">TW.CHK.10.HLZ</span> | 儀器: SMART24A / PA-2
+            </p>
+          </div>
+          <div className="mt-4 md:mt-0 flex gap-2">
+            <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-medium">Pole-Zero Ready</span>
+            <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm font-medium">Interactive</span>
+          </div>
+        </header>
+
+        {/* Grid Layout */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          
+          {/* Left Col: Metadata & PZ Map */}
+          <div className="space-y-8">
+            
+            {/* Metadata Card */}
+            <div className="bg-white rounded-2xl shadow-sm p-6">
+              <h2 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
+                <Info className="w-5 h-5 text-indigo-500" />
+                儀器參數 (Metadata)
+              </h2>
+              <div className="grid grid-cols-1 gap-4 text-sm">
+                <div className="flex justify-between border-b border-slate-100 pb-2">
+                  <span className="text-slate-500">Sensitivity</span>
+                  <span className="font-mono font-medium">{toSci(SENSITIVITY)}</span>
+                </div>
+                <div className="flex justify-between border-b border-slate-100 pb-2">
+                  <span className="text-slate-500">A0 (Norm Factor)</span>
+                  <span className="font-mono font-medium">{toSci(2.313560e+09)}</span>
+                </div>
+                <div className="flex justify-between border-b border-slate-100 pb-2">
+                  <span className="text-slate-500">Gain Constant</span>
+                  <span className="font-mono font-medium">{toSci(CONSTANT)}</span>
+                </div>
+                <div className="flex justify-between pt-2">
+                  <span className="text-slate-500">Input / Output</span>
+                  <span className="font-mono font-medium">M / COUNTS</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Pole-Zero Plot */}
+            <PZPlot />
+
+          </div>
+
+          {/* Right Col: Response Curves */}
+          <div className="lg:col-span-2 space-y-6">
+            
+            {/* Controls */}
+            <div className="bg-white rounded-2xl shadow-sm p-2 flex gap-2">
+              <button
+                onClick={() => setActiveTab('disp')}
+                className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all duration-200 ${
+                  activeTab === 'disp' 
+                    ? 'bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-200' 
+                    : 'text-slate-400 hover:bg-slate-50'
+                }`}
+              >
+                位移響應 (Displacement)
+              </button>
+              <button
+                onClick={() => setActiveTab('acc')}
+                className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all duration-200 ${
+                  activeTab === 'acc' 
+                    ? 'bg-red-50 text-red-700 shadow-sm ring-1 ring-red-200' 
+                    : 'text-slate-400 hover:bg-slate-50'
+                }`}
+              >
+                加速度響應 (Acceleration)
+              </button>
+            </div>
+
+            {/* Main Chart */}
+            <div className="bg-white rounded-2xl shadow-sm p-6 min-h-[400px]">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-bold text-slate-800">{currentData.title}</h2>
+                <div className="text-sm text-slate-500 flex items-center gap-2">
+                   <MousePointer2 className="w-4 h-4" /> 
+                   {hoverFreq ? (
+                     <span>Freq: {hoverFreq.toFixed(2)} Hz | Mag: {toSci(activeTab === 'disp' ? chartData.find(d => d.freq >= hoverFreq)?.magDisp : chartData.find(d => d.freq >= hoverFreq)?.magAcc)}</span>
+                   ) : '移動游標查看數值'}
+                </div>
+              </div>
+              
+              <ResponsiveBodePlot 
+                data={currentData.data} 
+                color={currentData.color} 
+                onHover={setHoverFreq}
+              />
+              
+              <div className="mt-4 p-4 bg-slate-50 rounded-lg text-sm text-slate-600">
+                <p>
+                  <strong>分析:</strong> 
+                  {activeTab === 'acc' 
+                    ? ' 加速度響應在 0.01 Hz 到 200 Hz 之間非常平坦。這證實了 PA-2 是一個高品質的加速度計，能忠實記錄地震波的加速度分量。' 
+                    : ' 位移響應在低頻呈現斜率上升 (Slope +2)，這是因為儀器實際上是透過測量慣性力來推算加速度，對低頻靜態位移不敏感。'}
+                </p>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        {/* Theory Section */}
+        <section className="bg-gradient-to-br from-indigo-900 to-slate-900 rounded-3xl p-8 text-white">
+          <div className="max-w-4xl mx-auto">
+            <h2 className="text-2xl font-bold mb-6 flex items-center gap-3">
+              <Zap className="w-6 h-6 text-yellow-400" />
+              物理意義解析
+            </h2>
+            <div className="grid md:grid-cols-2 gap-8 text-indigo-100 leading-relaxed">
+              <div>
+                <h3 className="font-bold text-white text-lg mb-2">為什麼有兩個原點零點？</h3>
+                <p className="mb-4">
+                  在 Pole-Zero 檔案中，<code>0.0 + 0.0i</code> 出現了兩次。
+                  這對應到拉普拉斯域中的 $s^2$ 項。在物理上，這代表<strong className="text-yellow-300">二次微分</strong>。
+                  因為輸入是「位移 (M)」，而儀器測量的是「加速度 ($M/s^2$)」，所以必須對位移進行兩次微分才能得到加速度。
+                </p>
+              </div>
+              <div>
+                <h3 className="font-bold text-white text-lg mb-2">轉角頻率 (Corner Frequency)</h3>
+                <p>
+                  主要極點對為 <code>-742 ± 1014i</code>。
+                  利用 $\sqrt{742^2 + 1014^2} / 2\pi$ 計算，可得自然頻率約為 <strong className="text-yellow-300">200 Hz</strong>。
+                  這決定了儀器的頻寬上限。高於此頻率的訊號會被快速衰減，這有助於防止高頻雜訊混疊。
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  );
+};
+
+// --- Sub-components ---
+
+/**
+ * Custom SVG Bode Plot (Log-Log)
+ */
+const ResponsiveBodePlot = ({ data, color, onHover }) => {
+  const containerRef = useRef(null);
+  const [width, setWidth] = useState(600);
+  const height = 300;
+  const padding = { top: 20, right: 30, bottom: 40, left: 60 };
+
+  useEffect(() => {
+    if (containerRef.current) {
+      setWidth(containerRef.current.offsetWidth);
+    }
+    const handleResize = () => {
+      if(containerRef.current) setWidth(containerRef.current.offsetWidth);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Log Scale Logic
+  const xMin = Math.log10(data[0].x);
+  const xMax = Math.log10(data[data.length - 1].x);
+  
+  // Y Scale Logic
+  const yValues = data.map(d => d.y);
+  const yMaxVal = Math.max(...yValues);
+  const yMinVal = Math.min(...yValues); // Might be very small
+  // For log plot on Y, handle 0 or negative (not possible for mag)
+  const yMinLog = Math.log10(yMinVal > 0 ? yMinVal : 1e-10);
+  const yMaxLog = Math.log10(yMaxVal);
+
+  const getX = (val) => {
+    const logVal = Math.log10(val);
+    return padding.left + ((logVal - xMin) / (xMax - xMin)) * (width - padding.left - padding.right);
+  };
+
+  const getY = (val) => {
+    const logVal = Math.log10(val);
+    // Y axis inverted (0 at top)
+    return height - padding.bottom - ((logVal - yMinLog) / (yMaxLog - yMinLog)) * (height - padding.top - padding.bottom);
+  };
+
+  // Generate Path
+  let pathD = `M ${getX(data[0].x)} ${getY(data[0].y)}`;
+  data.forEach(d => {
+    pathD += ` L ${getX(d.x)} ${getY(d.y)}`;
+  });
+
+  const handleMouseMove = (e) => {
+    const rect = containerRef.current.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    // Inverse X to find freq
+    const ratio = (mouseX - padding.left) / (width - padding.left - padding.right);
+    const logFreq = xMin + ratio * (xMax - xMin);
+    const freq = Math.pow(10, logFreq);
+    if (freq >= data[0].x && freq <= data[data.length-1].x) {
+      onHover(freq);
+    }
+  };
+
+  return (
+    <div ref={containerRef} className="relative cursor-crosshair" onMouseMove={handleMouseMove} onMouseLeave={() => onHover(null)}>
+      <svg width={width} height={height} className="overflow-visible">
+        {/* Grid Lines */}
+        {[0.01, 0.1, 1, 10, 100, 1000].map(val => (
+           val >= data[0].x && val <= data[data.length-1].x && (
+            <g key={val}>
+              <line x1={getX(val)} y1={padding.top} x2={getX(val)} y2={height - padding.bottom} stroke="#e2e8f0" strokeDasharray="4 4" />
+              <text x={getX(val)} y={height - 10} textAnchor="middle" fontSize="10" fill="#94a3b8">{val} Hz</text>
+            </g>
+          )
+        ))}
+
+        {/* Path */}
+        <path d={pathD} fill="none" stroke={color} strokeWidth="3" />
+        
+        {/* Axes */}
+        <line x1={padding.left} y1={height - padding.bottom} x2={width - padding.right} y2={height - padding.bottom} stroke="#64748b" />
+        <line x1={padding.left} y1={padding.top} x2={padding.left} y2={height - padding.bottom} stroke="#64748b" />
+        
+        {/* Y Axis Labels (Simple max/min) */}
+        <text x={padding.left - 10} y={padding.top + 10} textAnchor="end" fontSize="10" fill="#64748b">{toSci(yMaxVal)}</text>
+        <text x={padding.left - 10} y={height - padding.bottom - 5} textAnchor="end" fontSize="10" fill="#64748b">{toSci(yMinVal)}</text>
+      </svg>
+    </div>
+  );
+};
+
+/**
+ * Pole Zero Map Visualization
+ */
+const PZPlot = () => {
+  // Fixed scale for visualization
+  // Max Pole is ~5600. Max Zero is 3333.
+  // Y max is ~1000.
+  const scale = 50; 
+  const centerX = 200;
+  const centerY = 100;
+
+  // Coordinate transform: map (-6000, 1000) to SVG viewbox
+  const mapX = (val) => centerX + (val / 6000) * 180; // Scale down
+  const mapY = (val) => centerY - (val / 2000) * 80;
+
+  return (
+    <div className="bg-white rounded-2xl shadow-sm p-6">
+      <h2 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
+        <LineChart className="w-5 h-5 text-indigo-500" />
+        PZ Map (S-Plane)
+      </h2>
+      <div className="relative border border-slate-200 rounded-lg bg-slate-50 overflow-hidden">
+        <svg viewBox="0 0 300 200" className="w-full h-48">
+          {/* Axes */}
+          <line x1="0" y1={centerY} x2="300" y2={centerY} stroke="#cbd5e1" strokeWidth="1" />
+          <line x1={centerX} y1="0" x2={centerX} y2="200" stroke="#cbd5e1" strokeWidth="1" />
+          <text x={280} y={centerY + 15} fontSize="10" fill="#94a3b8">Re</text>
+          <text x={centerX + 5} y={15} fontSize="10" fill="#94a3b8">Im</text>
+
+          {/* Poles (X) */}
+          {POLES.map((p, i) => (
+            <g key={`p-${i}`} transform={`translate(${mapX(p.re)}, ${mapY(p.im)})`}>
+              <line x1="-3" y1="-3" x2="3" y2="3" stroke="#ef4444" strokeWidth="1.5" />
+              <line x1="-3" y1="3" x2="3" y2="-3" stroke="#ef4444" strokeWidth="1.5" />
+            </g>
+          ))}
+
+          {/* Zeros (O) */}
+          {ZEROS.map((z, i) => (
+            <circle key={`z-${i}`} cx={mapX(z.re)} cy={mapY(z.im)} r="3" stroke="#3b82f6" strokeWidth="1.5" fill="none" />
+          ))}
+          
+          {/* Annotations */}
+          <text x={mapX(-5638)} y={mapY(0) + 12} textAnchor="middle" fontSize="8" fill="#64748b">-5638</text>
+          <text x={mapX(0)} y={mapY(0) - 8} textAnchor="middle" fontSize="8" fill="#64748b">Origin (x2)</text>
+        </svg>
+        <div className="p-2 text-xs text-slate-500 bg-white border-t border-slate-100 flex justify-center gap-4">
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full border border-blue-500"></span> Zeros (零點)</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 text-red-500 font-bold">×</span> Poles (極點)</span>
+        </div>
+      </div>
+      <p className="text-xs text-slate-400 mt-2 text-center">
+        * 注意：X軸與Y軸比例不同以適應顯示
+      </p>
+    </div>
+  );
+};
+
+export default App;
