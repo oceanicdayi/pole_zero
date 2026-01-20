@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="強震儀響應分析系統完整文檔 - 深入了解 Pole-Zero 分析與地震儀器響應">
+    <meta name="keywords" content="強震儀, Pole-Zero, 地震學, 儀器響應, SAC">
+    <meta property="og:title" content="強震儀響應分析系統文檔">
+    <meta property="og:description" content="台灣地震觀測網強震儀儀器響應的互動式分析工具完整文檔">
+    <title>強震儀響應分析系統 - 完整文檔</title>
+    
+    <!-- Favicon -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- KaTeX for math rendering -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    
+    <!-- Highlight.js for code highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/bash.min.js"></script>
+
+    <style>
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+        
+        .prose { max-width: none; }
+        .prose h1 { @apply text-4xl font-bold text-slate-100 mt-8 mb-4; }
+        .prose h2 { @apply text-3xl font-bold text-slate-200 mt-8 mb-4 border-b border-slate-700 pb-2; }
+        .prose h3 { @apply text-2xl font-semibold text-slate-300 mt-6 mb-3; }
+        .prose h4 { @apply text-xl font-semibold text-slate-400 mt-4 mb-2; }
+        .prose p { @apply text-slate-300 leading-relaxed mb-4; }
+        .prose ul, .prose ol { @apply text-slate-300 ml-6 mb-4; }
+        .prose li { @apply mb-2; }
+        .prose code { @apply bg-slate-800 text-blue-300 px-1.5 py-0.5 rounded text-sm font-mono; }
+        .prose pre { @apply bg-slate-900 rounded-lg p-4 overflow-x-auto mb-4; }
+        .prose pre code { @apply bg-transparent text-sm p-0; }
+        .prose table { @apply w-full border-collapse mb-4; }
+        .prose th { @apply bg-slate-800 text-slate-200 p-3 text-left border border-slate-700; }
+        .prose td { @apply p-3 border border-slate-700 text-slate-300; }
+        .prose blockquote { @apply border-l-4 border-blue-500 pl-4 italic text-slate-400 my-4; }
+        .prose a { @apply text-blue-400 hover:text-blue-300 underline; }
+        .prose strong { @apply text-slate-100 font-semibold; }
+        
+        .nav-link { @apply block px-4 py-2 text-slate-400 hover:text-blue-400 hover:bg-slate-800 rounded transition-colors; }
+        .nav-link.active { @apply text-blue-400 bg-slate-800 font-medium; }
+        .section-nav { @apply ml-4 text-sm; }
+        
+        .smooth-scroll { scroll-behavior: smooth; }
+        
+        .fade-in { animation: fadeIn 0.5s ease-in; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="bg-slate-900">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // Icons
+        const Menu = () => (
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+        );
+
+        const X = () => (
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+        );
+
+        const ChevronRight = () => (
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+        );
+
+        const Home = () => (
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+            </svg>
+        );
+
+        const Book = () => (
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+            </svg>
+        );
+
+        // Table of Contents
+        const sections = [
+            { id: 'overview', title: '專案概述', level: 1 },
+            { id: 'features', title: '主要功能', level: 2 },
+            { id: 'station-info', title: '測站資訊', level: 2 },
+            { id: 'quick-start', title: '快速開始', level: 1 },
+            { id: 'file-format', title: 'SAC Pole-Zero 檔案格式', level: 1 },
+            { id: 'physics', title: '物理意義深度解析', level: 1 },
+            { id: 'technical', title: '技術實作說明', level: 1 },
+            { id: 'applications', title: '應用情境與範例', level: 1 },
+            { id: 'faq', title: '常見問題', level: 1 },
+            { id: 'references', title: '參考資料', level: 1 },
+            { id: 'license', title: '授權與貢獻', level: 1 }
+        ];
+
+        function App() {
+            const [activeSection, setActiveSection] = useState('overview');
+            const [sidebarOpen, setSidebarOpen] = useState(false);
+            const contentRef = useRef(null);
+
+            useEffect(() => {
+                // Highlight code blocks
+                document.querySelectorAll('pre code').forEach((block) => {
+                    hljs.highlightElement(block);
+                });
+
+                // Render math equations
+                document.querySelectorAll('.math').forEach((elem) => {
+                    try {
+                        katex.render(elem.textContent, elem, { displayMode: elem.classList.contains('display') });
+                    } catch (e) {
+                        console.error('KaTeX error:', e);
+                    }
+                });
+            }, []);
+
+            useEffect(() => {
+                const handleScroll = () => {
+                    const scrollPosition = window.scrollY + 100;
+                    
+                    for (let i = sections.length - 1; i >= 0; i--) {
+                        const section = document.getElementById(sections[i].id);
+                        if (section && section.offsetTop <= scrollPosition) {
+                            setActiveSection(sections[i].id);
+                            break;
+                        }
+                    }
+                };
+
+                window.addEventListener('scroll', handleScroll);
+                return () => window.removeEventListener('scroll', handleScroll);
+            }, []);
+
+            const scrollToSection = (id) => {
+                const element = document.getElementById(id);
+                if (element) {
+                    element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    setSidebarOpen(false);
+                }
+            };
+
+            return (
+                <div className="min-h-screen flex">
+                    {/* Sidebar */}
+                    <aside className={`fixed lg:sticky top-0 left-0 h-screen w-80 bg-slate-800 border-r border-slate-700 overflow-y-auto z-50 transition-transform duration-300 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
+                        <div className="p-6 border-b border-slate-700">
+                            <div className="flex items-center justify-between mb-2">
+                                <h1 className="text-xl font-bold text-slate-100 flex items-center gap-2">
+                                    <Book /> 專案文檔
+                                </h1>
+                                <button 
+                                    onClick={() => setSidebarOpen(false)}
+                                    className="lg:hidden text-slate-400 hover:text-slate-200"
+                                >
+                                    <X />
+                                </button>
+                            </div>
+                            <p className="text-sm text-slate-400">強震儀響應分析系統</p>
+                        </div>
+                        
+                        <nav className="p-4">
+                            <a href="index.html" className="flex items-center gap-2 px-4 py-3 mb-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors">
+                                <Home />
+                                <span className="font-medium">返回互動分析工具</span>
+                            </a>
+
+                            <div className="text-xs text-slate-500 font-semibold uppercase mb-2 px-4">目錄</div>
+                            {sections.map((section) => (
+                                <button
+                                    key={section.id}
+                                    onClick={() => scrollToSection(section.id)}
+                                    className={`nav-link w-full text-left ${activeSection === section.id ? 'active' : ''} ${section.level === 2 ? 'section-nav' : ''}`}
+                                >
+                                    {section.level === 2 && <ChevronRight />}
+                                    {section.title}
+                                </button>
+                            ))}
+                        </nav>
+                    </aside>
+
+                    {/* Overlay for mobile */}
+                    {sidebarOpen && (
+                        <div 
+                            className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
+                            onClick={() => setSidebarOpen(false)}
+                        />
+                    )}
+
+                    {/* Main Content */}
+                    <main className="flex-1 min-w-0">
+                        {/* Top Bar */}
+                        <div className="sticky top-0 z-30 bg-slate-800 border-b border-slate-700 px-6 py-4 flex items-center justify-between lg:hidden">
+                            <button 
+                                onClick={() => setSidebarOpen(true)}
+                                className="text-slate-300 hover:text-slate-100"
+                            >
+                                <Menu />
+                            </button>
+                            <span className="text-slate-200 font-medium">文檔</span>
+                            <div className="w-6"></div>
+                        </div>
+
+                        {/* Content */}
+                        <div ref={contentRef} className="max-w-4xl mx-auto px-6 py-12 prose">
+                            <DocContent />
+                        </div>
+
+                        {/* Footer */}
+                        <footer className="border-t border-slate-700 bg-slate-800 px-6 py-8">
+                            <div className="max-w-4xl mx-auto text-center text-slate-400 text-sm">
+                                <p>© 2026 Pole-Zero Response Analyzer | 作者: oceanicdayi</p>
+                                <p className="mt-2">
+                                    <a href="https://github.com/oceanicdayi/pole_zero" className="text-blue-400 hover:text-blue-300">GitHub Repository</a>
+                                </p>
+                            </div>
+                        </footer>
+                    </main>
+                </div>
+            );
+        }
+
+        function DocContent() {
+            return (
+                <>
+                    <div id="overview" className="fade-in">
+                        <h1>強震儀響應分析系統 (Pole-Zero Response Analyzer)</h1>
+                    </div>
+
+                    <div id="features">
+                        <h2>專案概述</h2>
+                        <p>本專案提供台灣地震觀測網強震儀儀器響應的互動式分析工具，包含 SAC Pole-Zero 格式檔案解析與視覺化網頁應用程式。透過本工具，使用者可以深入理解地震儀器的頻率響應特性、Pole-Zero 圖，以及儀器參數的物理意義。</p>
+
+                        <h3>主要功能</h3>
+                        <ul>
+                            <li>📊 <strong>互動式 Bode Plot</strong>：即時顯示儀器的振幅響應與相位響應</li>
+                            <li>🗺️ <strong>Pole-Zero 圖</strong>：在 S-平面上視覺化極點與零點的分布</li>
+                            <li>🔄 <strong>雙模式切換</strong>：可切換查看位移響應與加速度響應</li>
+                            <li>📱 <strong>響應式設計</strong>：支援桌面與行動裝置瀏覽</li>
+                            <li>🎯 <strong>懸停數值顯示</strong>：移動游標即可查看任意頻率的響應數值</li>
+                        </ul>
+                    </div>
+
+                    <div id="station-info">
+                        <h3>測站資訊</h3>
+                        <table>
+                            <tbody>
+                                <tr><td><strong>測站代碼</strong></td><td>TW.CHK.10.HLZ</td></tr>
+                                <tr><td><strong>測站名稱</strong></td><td>成功氣象站 (Cheng-Gong Weather Station)</td></tr>
+                                <tr><td><strong>儀器型號</strong></td><td>SMART24A 地震紀錄器</td></tr>
+                                <tr><td><strong>感測器</strong></td><td>PA-2 加速度感測器 (內建)</td></tr>
+                                <tr><td><strong>位置</strong></td><td>北緯 23.098°，東經 121.373°，海拔 37 公尺</td></tr>
+                                <tr><td><strong>取樣率</strong></td><td>100 Hz</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div id="quick-start">
+                        <h2>快速開始</h2>
+                        
+                        <h3>方法一：直接開啟網頁</h3>
+                        <p>在瀏覽器中開啟 <code>index.html</code> 檔案即可使用互動式分析工具，無需安裝任何相依套件。</p>
+                        <pre><code className="language-bash"># 使用預設瀏覽器開啟
+open index.html  # macOS
+xdg-open index.html  # Linux
+start index.html  # Windows</code></pre>
+
+                        <h3>方法二：使用本地伺服器</h3>
+                        <p>若需要更好的開發體驗，可使用本地 HTTP 伺服器：</p>
+                        <pre><code className="language-bash"># 使用 Python 3
+python3 -m http.server 8000
+
+# 或使用 Node.js
+npx http-server -p 8000</code></pre>
+                        <p>然後在瀏覽器開啟 <code>http://localhost:8000</code>。</p>
+                    </div>
+
+                    <div id="file-format">
+                        <h2>SAC Pole-Zero 檔案格式說明</h2>
+                        <p>本專案使用的 SAC (Seismic Analysis Code) Pole-Zero 檔案包含測站與儀器的完整資訊。</p>
+
+                        <h3>檔案結構</h3>
+                        <pre><code>SAC_PZs_TW_CHK_HLZ_10_2018.344.00.00.00.0000_2599.365.23.59.59.99999</code></pre>
+
+                        <h3>Metadata（元資料區塊）</h3>
+                        <table>
+                            <thead>
+                                <tr><th>欄位</th><th>說明</th><th>範例值</th></tr>
+                            </thead>
+                            <tbody>
+                                <tr><td>NETWORK</td><td>地震網代碼</td><td>TW (台灣)</td></tr>
+                                <tr><td>STATION</td><td>測站代碼</td><td>CHK (成功)</td></tr>
+                                <tr><td>LOCATION</td><td>位置代碼</td><td>10</td></tr>
+                                <tr><td>CHANNEL</td><td>通道代碼</td><td>HLZ (垂直向高增益)</td></tr>
+                                <tr><td>SAMPLE RATE</td><td>取樣率 (Hz)</td><td>100.0</td></tr>
+                                <tr><td>INPUT UNIT</td><td>輸入單位</td><td>M (公尺，位移)</td></tr>
+                                <tr><td>OUTPUT UNIT</td><td>輸出單位</td><td>COUNTS (數位計數值)</td></tr>
+                                <tr><td>SENSITIVITY</td><td>靈敏度</td><td>3.121640×10⁵</td></tr>
+                            </tbody>
+                        </table>
+
+                        <h3>Zeros（零點）</h3>
+                        <pre><code>ZEROS   3
+    +0.000000e+00   +0.000000e+00   # 零點 1 (原點)
+    +0.000000e+00   +0.000000e+00   # 零點 2 (原點)
+    -3.333000e+03   +0.000000e+00   # 零點 3 (實軸)</code></pre>
+
+                        <h3>Poles（極點）</h3>
+                        <pre><code>POLES   4
+    -7.420000e+02   +1.014000e+03   # 極點 1 (複數對)
+    -7.420000e+02   -1.014000e+03   # 極點 2 (複數對的共軛)
+    -8.663000e+02   +0.000000e+00   # 極點 3 (實軸)
+    -5.638000e+03   +0.000000e+00   # 極點 4 (實軸)</code></pre>
+                    </div>
+
+                    <div id="physics">
+                        <h2>物理意義深度解析</h2>
+
+                        <h3>1. 為什麼輸入單位是「位移」而非「加速度」？</h3>
+                        <p>雖然 PA-2 是一台<strong>加速度計 (Accelerometer)</strong>，但在地震學的標準作法中，所有儀器響應都統一以<strong>地面位移 (Ground Displacement)</strong> 為輸入基準。這樣做的好處是：</p>
+                        <ul>
+                            <li>✅ 不同類型儀器（地震儀、強震儀）可以統一處理</li>
+                            <li>✅ 便於進行儀器響應去除 (Instrument Response Removal)</li>
+                            <li>✅ 符合 SEED/FDSN 國際標準</li>
+                        </ul>
+
+                        <h3>2. 零點 (Zeros) 的物理意義</h3>
+                        <h4>兩個原點零點：位移→加速度的轉換</h4>
+                        <p>在拉普拉斯域中，這兩個零點對應到 <strong>s² 項</strong>，代表<strong>二次微分</strong>。這個數學運算的物理意義是：</p>
+                        <ul>
+                            <li>第一次微分：位移 → 速度</li>
+                            <li>第二次微分：速度 → 加速度</li>
+                        </ul>
+
+                        <h4>第三個零點：高頻補償</h4>
+                        <p>零點 <code>s = -3333</code> 位於頻率約 <strong>530 Hz</strong> 的位置，主要用於：</p>
+                        <ul>
+                            <li>🔧 電子電路的高頻響應微調</li>
+                            <li>🔧 補償感測器的物理特性</li>
+                            <li>🔧 確保整體轉換函數的穩定性</li>
+                        </ul>
+
+                        <h3>3. 極點 (Poles) 的物理意義</h3>
+                        <h4>複數極點對：決定儀器頻寬</h4>
+                        <p>極點對 <code>s = -742 ± 1014i</code> 決定了儀器的<strong>轉角頻率 (Corner Frequency)</strong> 約為 <strong>200 Hz</strong>。</p>
+                        
+                        <p><strong>物理意義</strong>：</p>
+                        <ul>
+                            <li>在 0.01 Hz 到 200 Hz 之間，儀器對加速度的響應非常平坦 (Flat)</li>
+                            <li>超過 200 Hz 後，響應開始快速衰減</li>
+                            <li>這確保了儀器能忠實記錄地震波，同時濾除高頻雜訊</li>
+                        </ul>
+
+                        <h4>實數極點：抗混疊濾波</h4>
+                        <p>實數極點 <code>-866.3</code> 和 <code>-5638</code> 提供額外的高頻濾波：</p>
+                        <ul>
+                            <li>🛡️ <strong>抗混疊 (Anti-aliasing)</strong>：防止高頻訊號造成失真</li>
+                            <li>🛡️ <strong>電子電路特性</strong>：反映類比濾波器的物理限制</li>
+                            <li>🛡️ <strong>雜訊抑制</strong>：確保輸出訊號的品質</li>
+                        </ul>
+                    </div>
+
+                    <div id="technical">
+                        <h2>技術實作說明</h2>
+
+                        <h3>前端架構</h3>
+                        <p>本專案的網頁應用程式採用現代化的前端技術棧：</p>
+                        <ul>
+                            <li><strong>React 18</strong>：使用 Hooks（useState, useEffect, useMemo）進行狀態管理</li>
+                            <li><strong>Tailwind CSS</strong>：響應式設計與快速樣式開發</li>
+                            <li><strong>Babel Standalone</strong>：瀏覽器端即時編譯 JSX</li>
+                            <li><strong>無相依性 SVG</strong>：自行實現圖表繪製</li>
+                        </ul>
+
+                        <h3>複數運算類別</h3>
+                        <pre><code className="language-javascript">class Complex {
+    constructor(re, im) {
+        this.re = re;  // 實部
+        this.im = im;  // 虛部
+    }
+    
+    add(c) { ... }
+    sub(c) { ... }
+    mult(c) { ... }
+    div(c) { ... }
+    
+    mag() { return Math.sqrt(this.re² + this.im²); }
+    phase() { return Math.atan2(this.im, this.re); }
+}</code></pre>
+
+                        <h3>頻率響應計算</h3>
+                        <pre><code className="language-javascript">const s = new Complex(0, 2 * Math.PI * freq);
+
+let numerator = new Complex(CONSTANT, 0);
+ZEROS.forEach(z => {
+    numerator = numerator.mult(s.sub(z));
+});
+
+let denominator = new Complex(1, 0);
+POLES.forEach(p => {
+    denominator = denominator.mult(s.sub(p));
+});
+
+const H = numerator.div(denominator);
+const magnitude = H.mag();
+const phase = H.phase() * (180 / Math.PI);</code></pre>
+                    </div>
+
+                    <div id="applications">
+                        <h2>應用情境與範例</h2>
+
+                        <h3>情境一：地震訊號處理</h3>
+                        <p>在分析強震記錄時，需要將儀器記錄的數位計數值還原為真實的地面運動參數：</p>
+                        <pre><code className="language-python"># 使用 ObsPy 處理地震資料
+from obspy import read
+
+# 讀取波形資料
+st = read('TW.CHK.10.HLZ.mseed')
+
+# 去除儀器響應，轉換為加速度 (m/s²)
+st.remove_response(
+    inventory=inv,
+    output='ACC',  # 輸出加速度
+    water_level=60  # 穩定化參數
+)</code></pre>
+
+                        <h3>情境二：儀器選型與規劃</h3>
+                        <table>
+                            <thead>
+                                <tr><th>應用目標</th><th>建議儀器類型</th><th>轉角頻率</th><th>動態範圍</th></tr>
+                            </thead>
+                            <tbody>
+                                <tr><td>遠震研究</td><td>寬頻地震儀</td><td>0.008 Hz (120s)</td><td>±140 dB</td></tr>
+                                <tr><td>近震分析</td><td>短週期地震儀</td><td>1 Hz</td><td>±120 dB</td></tr>
+                                <tr><td><strong>強震監測</strong></td><td><strong>強震儀 (FBA)</strong></td><td><strong>100-200 Hz</strong></td><td><strong>±110 dB</strong></td></tr>
+                                <tr><td>地動觀測</td><td>甚寬頻地震儀</td><td>0.001 Hz (1000s)</td><td>±150 dB</td></tr>
+                            </tbody>
+                        </table>
+
+                        <h3>情境三：教學與訓練</h3>
+                        <p>本互動式工具可用於：</p>
+                        <ul>
+                            <li><strong>地震學課程</strong>：展示儀器響應的概念</li>
+                            <li><strong>訊號處理教學</strong>：理解 Pole-Zero 與轉換函數</li>
+                            <li><strong>工程地震學訓練</strong>：認識強震儀的特性</li>
+                            <li><strong>研究方法工作坊</strong>：實際操作儀器響應分析</li>
+                        </ul>
+                    </div>
+
+                    <div id="faq">
+                        <h2>常見問題 (FAQ)</h2>
+
+                        <h3>Q1：為什麼加速度響應在低頻會上升？</h3>
+                        <p><strong>A</strong>：這是<strong>視覺錯覺</strong>。實際上，加速度響應在觀測頻帶內（0.01-100 Hz）是平坦的。圖表看起來上升是因為使用對數刻度。</p>
+
+                        <h3>Q2：轉角頻率 200 Hz 是不是太高了？</h3>
+                        <p><strong>A</strong>：不會。雖然地震波的主要能量通常在 0.1-20 Hz，但高轉角頻率確保在觀測頻帶內響應完全平坦，這避免了相位失真，保證波形的忠實度。</p>
+
+                        <h3>Q3：可以用這個 Pole-Zero 檔案處理其他測站的資料嗎？</h3>
+                        <p><strong>A</strong>：<strong>不可以</strong>。每個測站、每個儀器都有獨特的響應特性。使用錯誤的響應檔案會導致振幅計算錯誤、相位失真等問題。</p>
+
+                        <h3>Q4：Pole-Zero 格式與 RESP 格式有什麼差別？</h3>
+                        <table>
+                            <thead>
+                                <tr><th>特性</th><th>Pole-Zero (PZ)</th><th>RESP (Response)</th></tr>
+                            </thead>
+                            <tbody>
+                                <tr><td>格式</td><td>SAC 專用，簡潔</td><td>SEED 標準，詳細</td></tr>
+                                <tr><td>內容</td><td>Poles、Zeros、Constant</td><td>包含多級放大、濾波器等</td></tr>
+                                <tr><td>適用軟體</td><td>SAC、ObsPy、SeisComP</td><td>所有地震學軟體</td></tr>
+                                <tr><td>精確度</td><td>適用於大多數情況</td><td>最完整精確</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div id="references">
+                        <h2>參考資料與延伸閱讀</h2>
+
+                        <h3>官方文檔</h3>
+                        <ul>
+                            <li><a href="https://ds.iris.edu/ds/nodes/dmc/data/formats/resp/" target="_blank">IRIS DMC: Instrument Response</a></li>
+                            <li><a href="http://ds.iris.edu/files/sac-manual/" target="_blank">SAC Manual: Instrument Response</a></li>
+                            <li><a href="https://www.fdsn.org/xml/station/" target="_blank">FDSN StationXML Format</a></li>
+                        </ul>
+
+                        <h3>學術文獻</h3>
+                        <ol>
+                            <li><strong>Bormann, P.</strong> (2012). <em>New Manual of Seismological Observatory Practice (NMSOP-2)</em>. IASPEI, GFZ German Research Centre for Geosciences.</li>
+                            <li><strong>Scherbaum, F.</strong> (2001). <em>Of Poles and Zeros: Fundamentals of Digital Seismology</em>. Springer.</li>
+                            <li><strong>Havskov, J., & Alguacil, G.</strong> (2016). <em>Instrumentation in Earthquake Seismology</em>. Springer.</li>
+                        </ol>
+
+                        <h3>線上資源</h3>
+                        <ul>
+                            <li><a href="https://docs.obspy.org/tutorial/" target="_blank">ObsPy Tutorial</a>: Python 地震學分析工具</li>
+                            <li><a href="http://service.iris.edu/irisws/syngine/1/" target="_blank">IRIS Synthetics Engine</a>: 合成地震圖計算</li>
+                            <li><a href="https://www.cwa.gov.tw/V8/C/E/index.html" target="_blank">台灣中央氣象署地震測報中心</a></li>
+                        </ul>
+                    </div>
+
+                    <div id="license">
+                        <h2>授權與貢獻</h2>
+
+                        <h3>資料來源</h3>
+                        <ul>
+                            <li>Pole-Zero 檔案由中央氣象署提供</li>
+                            <li>測站資料來自台灣地震觀測網 (TW Network)</li>
+                        </ul>
+
+                        <h3>開源授權</h3>
+                        <p>本專案程式碼採用 <strong>MIT License</strong>，歡迎自由使用、修改與分享。</p>
+
+                        <h3>如何貢獻</h3>
+                        <p>歡迎透過以下方式貢獻：</p>
+                        <ul>
+                            <li>🐛 回報問題或錯誤</li>
+                            <li>💡 提出新功能建議</li>
+                            <li>📝 改善文件說明</li>
+                            <li>🔧 提交程式碼修正</li>
+                        </ul>
+
+                        <h3>聯絡資訊</h3>
+                        <p>如有任何問題或建議，歡迎聯繫：</p>
+                        <ul>
+                            <li><strong>專案作者</strong>：oceanicdayi</li>
+                            <li><strong>GitHub</strong>：<a href="https://github.com/oceanicdayi/pole_zero" target="_blank">oceanicdayi/pole_zero</a></li>
+                        </ul>
+
+                        <p className="text-center mt-8 text-slate-500">
+                            <strong>最後更新</strong>：2026 年 1 月 20 日
+                        </p>
+                    </div>
+                </>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
